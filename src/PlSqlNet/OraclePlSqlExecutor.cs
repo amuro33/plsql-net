@@ -8,17 +8,59 @@ namespace PlSqlNet;
 public sealed record OraclePlSqlOptions
 {
     public string CursorParameterName { get; init; } = "OUT_CURSOR";
+    public IReadOnlyList<string>? CursorParameterNames { get; init; }
     public string MessageParameterName { get; init; } = "OUT_MESSAGE";
     public int MessageSize { get; init; } = 4000;
+
+    internal IReadOnlyList<string> GetCursorParameterNames()
+    {
+        return CursorParameterNames is { Count: > 0 }
+            ? CursorParameterNames
+            : [CursorParameterName];
+    }
 }
 
 public sealed record OraclePlSqlResult(
     IReadOnlyList<IReadOnlyDictionary<string, object?>> Rows,
     string? Message);
 
+public sealed record OraclePlSqlMultiResult(
+    IReadOnlyDictionary<string, IReadOnlyList<IReadOnlyDictionary<string, object?>>> Cursors,
+    string? Message)
+{
+    public IReadOnlyList<IReadOnlyDictionary<string, object?>> GetCursor(string name)
+    {
+        return Cursors.TryGetValue(name.TrimStart(':'), out var rows)
+            ? rows
+            : [];
+    }
+}
+
 public static class OraclePlSqlExecutor
 {
     public static async Task<OraclePlSqlResult> ExecuteSelectAsync(
+        string connectionString,
+        string plSqlText,
+        IDictionary<string, object?> bindValues,
+        OraclePlSqlOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        options ??= new OraclePlSqlOptions();
+        var result = await ExecuteSelectManyAsync(
+            connectionString,
+            plSqlText,
+            bindValues,
+            options,
+            cancellationToken);
+
+        var cursorName = options.GetCursorParameterNames()[0];
+
+        return new OraclePlSqlResult(
+            result.GetCursor(cursorName),
+            result.Message);
+    }
+
+    public static async Task<OraclePlSqlMultiResult> ExecuteSelectManyAsync(
         string connectionString,
         string plSqlText,
         IDictionary<string, object?> bindValues,
@@ -30,9 +72,7 @@ public static class OraclePlSqlExecutor
         ArgumentNullException.ThrowIfNull(bindValues);
 
         options ??= new OraclePlSqlOptions();
-
-        await using var connection = new OracleConnection(connectionString);
-        await connection.OpenAsync(cancellationToken);
+        var cursorNames = options.GetCursorParameterNames();
 
         var parameters = new OracleDynamicParameters();
 
@@ -41,8 +81,15 @@ public static class OraclePlSqlExecutor
             parameters.AddInput(name, value);
         }
 
-        parameters.AddRefCursor(options.CursorParameterName);
+        foreach (var cursorName in cursorNames)
+        {
+            parameters.AddRefCursor(cursorName);
+        }
+
         parameters.AddOutputVarchar(options.MessageParameterName, options.MessageSize);
+
+        await using var connection = new OracleConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
 
         var command = new CommandDefinition(
             plSqlText,
@@ -50,17 +97,32 @@ public static class OraclePlSqlExecutor
             commandType: CommandType.Text,
             cancellationToken: cancellationToken);
 
-        var rows = await connection.QueryAsync(command);
-        var dictionaries = rows
+        var cursors = new Dictionary<string, IReadOnlyList<IReadOnlyDictionary<string, object?>>>(
+            StringComparer.OrdinalIgnoreCase);
+
+        using (var grid = await connection.QueryMultipleAsync(command))
+        {
+            foreach (var cursorName in cursorNames)
+            {
+                var rows = await grid.ReadAsync();
+                cursors[cursorName.TrimStart(':')] = ToDictionaries(rows);
+            }
+        }
+
+        var message = parameters.GetNullableString(options.MessageParameterName);
+
+        return new OraclePlSqlMultiResult(cursors, message);
+    }
+
+    private static IReadOnlyList<IReadOnlyDictionary<string, object?>> ToDictionaries(
+        IEnumerable<dynamic> rows)
+    {
+        return rows
             .Select(row => (IReadOnlyDictionary<string, object?>)
                 new Dictionary<string, object?>(
                     (IDictionary<string, object?>)row,
                     StringComparer.OrdinalIgnoreCase))
             .ToList();
-
-        return new OraclePlSqlResult(
-            dictionaries,
-            parameters.GetNullableString(options.MessageParameterName));
     }
 }
 

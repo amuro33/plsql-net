@@ -84,6 +84,42 @@ var result = await OraclePlSqlExecutor.ExecuteSelectAsync(
     options);
 ```
 
+## Multiple cursors
+
+`SELECT` 결과를 2개 이상 받아야 하면 PL/SQL에서 cursor를 여러 개 열고 `ExecuteSelectManyAsync`를 사용하면 됩니다.
+
+```sql
+BEGIN
+  OPEN :OUT_USERS FOR
+    SELECT USER_ID, USER_NAME
+    FROM USERS
+    WHERE USER_ID = :USER_ID;
+
+  OPEN :OUT_ORDERS FOR
+    SELECT ORDER_ID, USER_ID, ORDER_DATE
+    FROM ORDERS
+    WHERE USER_ID = :USER_ID;
+
+  :OUT_MESSAGE := 'OK';
+END;
+```
+
+```csharp
+var result = await OraclePlSqlExecutor.ExecuteSelectManyAsync(
+    connectionString,
+    plSql,
+    bindValues,
+    new OraclePlSqlOptions
+    {
+        CursorParameterNames = ["OUT_USERS", "OUT_ORDERS"]
+    });
+
+var users = result.GetCursor("OUT_USERS");
+var orders = result.GetCursor("OUT_ORDERS");
+
+Console.WriteLine(result.Message);
+```
+
 ## Notes
 
 - Oracle 바인딩은 `BindByName = true`로 동작합니다.
