@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/PlSqlNet/PlSqlNet.csproj" />
+  <Project Path="samples/PlSqlNet.Sample/PlSqlNet.Sample.csproj" />
+</Solution>
