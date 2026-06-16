@@ -162,6 +162,18 @@ public sealed class OracleDynamicParameters : SqlMapper.IDynamicParameters
         });
     }
 
+    public void AddOutputNumber(string name, byte precision = 38, byte scale = 10)
+    {
+        _parameters.Add(new OracleParameter
+        {
+            ParameterName = NormalizeName(name),
+            Direction = ParameterDirection.Output,
+            OracleDbType = OracleDbType.Decimal,
+            Precision = precision,
+            Scale = scale
+        });
+    }
+
     public string? GetNullableString(string name)
     {
         var value = GetParameter(name).Value;
@@ -173,6 +185,27 @@ public sealed class OracleDynamicParameters : SqlMapper.IDynamicParameters
             OracleString oracleString when oracleString.IsNull => null,
             OracleString oracleString => oracleString.Value,
             _ => value.ToString()
+        };
+    }
+
+    public decimal? GetNullableDecimal(string name)
+    {
+        var value = GetParameter(name).Value;
+
+        return value switch
+        {
+            null => null,
+            DBNull => null,
+            OracleDecimal oracleDecimal when oracleDecimal.IsNull => null,
+            OracleDecimal oracleDecimal => oracleDecimal.Value,
+            decimal decimalValue => decimalValue,
+            byte byteValue => byteValue,
+            short shortValue => shortValue,
+            int intValue => intValue,
+            long longValue => longValue,
+            float floatValue => Convert.ToDecimal(floatValue),
+            double doubleValue => Convert.ToDecimal(doubleValue),
+            _ => Convert.ToDecimal(value)
         };
     }
 

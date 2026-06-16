@@ -2,7 +2,7 @@
 
 .NET 10, Dapper, Oracle.ManagedDataAccess.Core 기반으로 PL/SQL 텍스트를 실행하는 예제입니다.
 
-기존 시스템의 바인딩 값은 `Dictionary<string, object?>`를 그대로 사용하고, output parameter는 `SYS_REFCURSOR`와 `VARCHAR2` 기준으로 처리합니다.
+기존 시스템의 바인딩 값은 `Dictionary<string, object?>`를 그대로 사용하고, output parameter는 `SYS_REFCURSOR`, `VARCHAR2`, `NUMBER` 기준으로 처리합니다.
 
 ## Packages
 
@@ -17,6 +17,7 @@ dotnet add package Oracle.ManagedDataAccess.Core
 
 - `:OUT_CURSOR` - `SYS_REFCURSOR`
 - `:OUT_MESSAGE` - `VARCHAR2`
+- 숫자 output이 필요하면 `OracleDynamicParameters.AddOutputNumber(...)`를 사용합니다. 기본은 `NUMBER(38, 10)`입니다.
 
 예시:
 
@@ -118,6 +119,24 @@ var users = result.GetCursor("OUT_USERS");
 var orders = result.GetCursor("OUT_ORDERS");
 
 Console.WriteLine(result.Message);
+```
+
+## Number output parameter
+
+소수점이 있는 숫자 output parameter는 `NUMBER`를 `decimal`로 받습니다.
+
+```csharp
+var parameters = new OracleDynamicParameters();
+parameters.AddInput("USER_ID", 1001);
+parameters.AddOutputNumber("OUT_AMOUNT");
+
+await connection.ExecuteAsync("""
+BEGIN
+  :OUT_AMOUNT := 1234.5678;
+END;
+""", parameters);
+
+decimal? amount = parameters.GetNullableDecimal("OUT_AMOUNT");
 ```
 
 ## Notes
